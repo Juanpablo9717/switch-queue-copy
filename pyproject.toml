@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "switch-queue-copy"
+version = "0.1.0"
+description = "Queued file-copy tool with auto-classification (BASE / UPDATE / DLC) for Nintendo Switch libraries (NSP/NSZ/XCI)."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Juan Pablo" }]
+keywords = ["nintendo-switch", "nsp", "nsz", "xci", "copy", "queue", "flet"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "flet>=0.84,<1.0",
+    # Windows MTP/WPD access (Heribert17/mtp is vendored under
+    # switch_queue/vendor/, but it needs comtypes at runtime).
+    'comtypes>=1.4 ; sys_platform == "win32"',
+    # Desktop toast notifications when a queue finishes (cross-platform).
+    "plyer>=2.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
+
+[project.gui-scripts]
+switch-queue-copy = "switch_queue.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/Juanpablo9717/switch-queue-copy"
+Repository = "https://github.com/Juanpablo9717/switch-queue-copy"
+
+[tool.setuptools.packages.find]
+include = ["switch_queue*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
