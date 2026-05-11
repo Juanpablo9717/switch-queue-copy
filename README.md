@@ -69,22 +69,114 @@ order *you* want, with proper progress, pause, skip, cancel.
 
 ---
 
-## Quick reference
+## Prerequisites
+
+- **Python ≥ 3.10** ([download](https://www.python.org/downloads/)). Make
+  sure `python` is on your PATH (the installer asks; tick it).
+- **git** ([download](https://git-scm.com/download/win)) — to clone the repo.
+- **Windows 10/11** if you want MTP destinations (Switch via DBI/Tinfoil,
+  Android phones, etc.). The rest works on Linux/macOS too.
+- *(optional)* a virtual environment tool like `venv` (ships with Python).
+
+Disk: ~150 MB during install (Flet runtime cache ~50 MB on first run,
+package wheels ~80 MB, your venv).
+
+## Dependencies
+
+| Package | Min version | Why |
+| --- | --- | --- |
+| `flet` | 0.84 (< 1.0) | UI framework (Material 3 over Flutter) |
+| `comtypes` | 1.4 | Windows COM bindings for MTP / WPD and `IFileOpenDialog` (Windows-only — installed conditionally via `sys_platform == "win32"`) |
+| `plyer` | 2.1 | Cross-platform desktop notifications |
+| **`pytest`** *(dev)* | 8 | Test runner |
+
+All locked through [`pyproject.toml`](pyproject.toml). When you do
+`pip install -e ".[dev]"` you get everything in one shot.
+
+Optional at runtime: nothing else. The Heribert17 MTP code is vendored
+under `switch_queue/vendor/` (MIT) — no separate install needed.
+
+## Install + run
 
 ```bash
-# Install dependencies (one-time, in a venv)
+# 1. Clone
+git clone https://github.com/Juanpablo9717/switch-queue-copy.git
+cd switch-queue-copy
+
+# 2. Virtual environment (recommended)
 python -m venv .venv
-.venv\Scripts\activate              # Windows
+.venv\Scripts\activate              # Windows (cmd / powershell)
+# source .venv/bin/activate         # Linux / macOS
+
+# 3. Editable install with dev extras
 pip install -e ".[dev]"
 
-# Run the app
+# 4. Launch
 python -m switch_queue
+```
 
-# Run the test suite (40 tests, ~1 s)
-python -m pytest -v
+The **first launch** downloads the Flet desktop runtime (~50 MB,
+one-time). After that the app opens in <1 s.
 
-# Build a standalone Windows .exe (output in dist/)
+## Test
+
+```bash
+python -m pytest -v          # all 40 tests, ~1 s
+python -m pytest tests/test_copier.py -v       # one file
+python -m pytest -k "serial" -v                 # by name
+```
+
+What the suite covers:
+
+- **Classification** — every regex rule, including 7 real-world filenames
+  from a Switch dump.
+- **Scanner** — single game, library, nested collection, flat bundle
+  splitting, DLC subfolders, mod skipping (by name *and* by structure),
+  empty folders.
+- **Copy queue serial invariant** — proves no two files are ever in
+  flight at the same time via event-log analysis. The test that
+  matters most.
+- **Pause / Skip / Cancel** during a running copy (with a shrunk
+  `COPY_BUF` so the timing is reproducible).
+- **Skip-existing / Overwrite** behaviour.
+- **Win32 clipboard round-trip** — writes, reads back via the same
+  API, asserts equality.
+- **`os.path.join` regression test for MTP paths** with drive-letter-looking
+  storage names like `5: SD Card install`.
+
+## Build a standalone Windows `.exe`
+
+```powershell
 .\scripts\build_exe.ps1
+```
+
+The script:
+
+1. Sanity-checks that `flet` CLI is on PATH (errors if not — install via `pip install flet`).
+2. Cleans previous `dist/` and `build/`.
+3. Runs `flet pack switch_queue/__main__.py --name "Switch Queue Copy"`
+   under the hood, which invokes **PyInstaller** + bundles the Flutter
+   runtime + your venv's site-packages.
+4. Optionally picks up `assets/icon.ico` if present.
+
+Output: **`dist/Switch Queue Copy.exe`** — a single ~80 MB executable.
+No installer, no DLLs alongside; copy it anywhere and double-click.
+
+For your own releases, the typical flow is: tag a version (`git tag
+v0.1.0 && git push --tags`), then upload the `.exe` to the GitHub
+Releases page as a download.
+
+Note: PyInstaller bundles need to match the target OS — a `.exe` built
+on Windows runs on Windows only.
+
+## Quick reference (cheat sheet)
+
+```bash
+cd switch-queue-copy
+pip install -e ".[dev]"                # one-time
+python -m switch_queue                  # run
+python -m pytest -v                     # test
+.\scripts\build_exe.ps1                 # build dist/*.exe
 ```
 
 ---
