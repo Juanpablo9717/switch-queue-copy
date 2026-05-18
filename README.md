@@ -2,6 +2,7 @@
 
 [![Tests](https://github.com/Juanpablo9717/switch-queue-copy/actions/workflows/test.yml/badge.svg)](https://github.com/Juanpablo9717/switch-queue-copy/actions/workflows/test.yml)
 [![Release](https://github.com/Juanpablo9717/switch-queue-copy/actions/workflows/release.yml/badge.svg)](https://github.com/Juanpablo9717/switch-queue-copy/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A serial file-copy tool for Nintendo Switch libraries (`.nsp` / `.nsz` / `.xci`),
 with **strict in-order execution**, **automatic classification** into
@@ -713,16 +714,12 @@ once in [`switch_queue/ui/components/__init__.py`](switch_queue/ui/components/__
 
 ---
 
-## Third-party code
+## License
 
-Vendored under `switch_queue/vendor/`:
+MIT — see [LICENSE](LICENSE).
 
-- [Heribert17/mtp](https://github.com/Heribert17/mtp) — MIT. The
-  original LICENSE is preserved alongside the vendored sources at
-  [`switch_queue/vendor/heribert17_mtp/LICENSE`](switch_queue/vendor/heribert17_mtp/LICENSE).
-
-Runtime dependencies (installed via pip, not vendored):
-
-- [Flet](https://flet.dev) — Apache 2.0
-- [plyer](https://github.com/kivy/plyer) — MIT
-- [comtypes](https://github.com/enthought/comtypes) — MIT
+Third-party:
+- [Heribert17/mtp](https://github.com/Heribert17/mtp) (MIT, vendored under `switch_queue/vendor/`).
+- [Flet](https://flet.dev) (Apache 2.0).
+- [plyer](https://github.com/kivy/plyer) (MIT).
+- [comtypes](https://github.com/enthought/comtypes) (MIT).
