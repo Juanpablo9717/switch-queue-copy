@@ -241,6 +241,22 @@ batching multiple commits into one meaningful version bump.
 
 ### To cut a release
 
+There are two ways to fire the release workflow — pick whichever fits the
+machine you're on.
+
+#### Option A — From the GitHub UI (no git checkout required)
+
+1. Make sure the changes you want shipped are already on `main`.
+2. Update `CHANGELOG.md` on `main` if you haven't been keeping
+   `[Unreleased]` current.
+3. Go to `https://github.com/Juanpablo9717/switch-queue-copy/actions/workflows/release.yml`
+4. Click **Run workflow** (top right). Type the version (e.g. `0.1.1`),
+   tick "Mark as pre-release" if applicable, click **Run workflow**.
+5. The workflow creates the tag `v0.1.1` from the current `main` HEAD,
+   builds Windows + Linux binaries, and publishes the release.
+
+#### Option B — From your local checkout
+
 ```bash
 # 1. Make sure tests pass locally first
 python -m pytest -v
@@ -258,6 +274,9 @@ git tag v0.1.1 -m "v0.1.1 — describe the highlight"
 # 4. Push the tag (this triggers the workflow)
 git push origin v0.1.1
 ```
+
+Both paths end up at the same place: a release with two downloadable
+binaries on `https://github.com/Juanpablo9717/switch-queue-copy/releases`.
 
 Then watch the build at `https://github.com/Juanpablo9717/switch-queue-copy/actions`.
 When both jobs go green, the release appears under "Releases" on the

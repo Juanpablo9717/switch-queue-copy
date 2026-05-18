@@ -1,21 +1,41 @@
 name: Release
 
-# Fired when you push a tag starting with `v`, e.g. `v0.1.0`.
-# The job:
+# Two ways to trigger this workflow:
+#
+#   1. Push a tag like `v0.1.0` from your machine:
+#        git tag v0.1.0 -m "..."
+#        git push origin v0.1.0
+#
+#   2. Click "Run workflow" in the Actions tab of the repo and type
+#      the version (e.g. `0.1.0`). Useful when you're on a machine
+#      without git, or when you'd rather do it from the browser.
+#
+# Either way, the job:
 #   1. Spins up one Windows and one Linux runner in parallel.
 #   2. Runs the full pytest suite as a gate.
 #   3. Bundles the app with `flet pack` (PyInstaller under the hood).
 #   4. Renames the output to a versioned, platform-tagged filename.
 #   5. Attaches it as an asset on a GitHub Release for that tag
-#      (creating the release if it doesn't exist), with auto-generated
-#      changelog from commit messages.
+#      (creating the release + tag if they don't exist), with
+#      auto-generated changelog from commit messages.
 
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 0.2.0 — without the v prefix, it is added automatically)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
 
-# We need write access to push the release + assets.
+# We need write access to push the release + assets + tag.
 permissions:
   contents: write
 
@@ -67,15 +87,29 @@ jobs:
       - name: Run tests (gate)
         run: pytest -v
 
-      - name: Compute version
+      - name: Compute version + tag
         id: version
         shell: bash
         run: |
-          # github.ref_name is the tag (e.g. "v0.1.0"); strip the leading 'v'
-          # because PyInstaller's version strings don't like the prefix.
-          VERSION="${GITHUB_REF_NAME#v}"
+          # We accept two trigger flavours:
+          #   - workflow_dispatch: read the input (e.g. "0.1.0" — strip leading v if user added it)
+          #   - tag push (refs/tags/v0.1.0): take github.ref_name and strip v for the embedded version
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RAW='${{ inputs.version }}'
+            VERSION="${RAW#v}"
+            TAG="v$VERSION"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+          fi
+          # Minimal sanity check — SemVer X.Y.Z (optionally followed by -rc1, -beta, etc.)
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$'; then
+            echo "::error::Version '$VERSION' is not valid SemVer (expected X.Y.Z[-suffix])."
+            exit 1
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Building version: $VERSION"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Building version: $VERSION (tag $TAG)"
 
       - name: Build with flet pack
         shell: bash
@@ -103,12 +137,13 @@ jobs:
       - name: Create / update GitHub Release & upload asset
         uses: softprops/action-gh-release@v2
         with:
-          # Creates the release on first matrix-job, then later jobs
-          # just append their assets to the same release tag.
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          # Creates the release (and tag, if dispatched manually) on the
+          # first matrix-job; later jobs append their assets to the same
+          # release tag.
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: release-assets/${{ steps.stage.outputs.name }}
           draft: false
-          prerelease: false
+          prerelease: ${{ inputs.prerelease || false }}
