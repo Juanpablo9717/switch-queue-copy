@@ -1,5 +1,9 @@
 # Switch Queue Copy
 
+[![Tests](https://github.com/Juanpablo9717/switch-queue-copy/actions/workflows/test.yml/badge.svg)](https://github.com/Juanpablo9717/switch-queue-copy/actions/workflows/test.yml)
+[![Release](https://github.com/Juanpablo9717/switch-queue-copy/actions/workflows/release.yml/badge.svg)](https://github.com/Juanpablo9717/switch-queue-copy/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A serial file-copy tool for Nintendo Switch libraries (`.nsp` / `.nsz` / `.xci`),
 with **strict in-order execution**, **automatic classification** into
 BASE / UPDATE / DLC, and **native MTP destinations** (Switch consoles in
@@ -162,12 +166,72 @@ The script:
 Output: **`dist/Switch Queue Copy.exe`** — a single ~80 MB executable.
 No installer, no DLLs alongside; copy it anywhere and double-click.
 
-For your own releases, the typical flow is: tag a version (`git tag
-v0.1.0 && git push --tags`), then upload the `.exe` to the GitHub
-Releases page as a download.
-
 Note: PyInstaller bundles need to match the target OS — a `.exe` built
-on Windows runs on Windows only.
+on Windows runs on Windows only. For multi-platform builds use the
+automated GitHub Actions flow below.
+
+## Releasing a new version (automated)
+
+The repo ships two GitHub Actions workflows:
+
+- **[`.github/workflows/test.yml`](.github/workflows/test.yml)** — runs
+  `pytest` on Windows + Linux × Python 3.10 + 3.12 for every push to
+  `main` and every pull request. The badge above turns red if a
+  platform-specific code path regresses.
+
+- **[`.github/workflows/release.yml`](.github/workflows/release.yml)** —
+  fires when you push a tag starting with `v`. Builds a Windows `.exe`
+  and a Linux binary in parallel via `flet pack`, gates them behind the
+  test suite, and uploads both to a new GitHub Release with
+  auto-generated changelog.
+
+### To cut a release
+
+```bash
+# 1. Make sure tests pass locally first
+python -m pytest -v
+
+# 2. Tag the commit you want to ship
+git tag v0.1.0 -m "First public release"
+
+# 3. Push the tag (this triggers the workflow)
+git push origin v0.1.0
+```
+
+Then watch the build at `https://github.com/Juanpablo9717/switch-queue-copy/actions`.
+When both jobs go green, the release appears under "Releases" on the
+repo's right sidebar, with two downloadable assets:
+
+```
+switch-queue-copy-0.1.0-windows-x64.exe       (~80 MB)
+switch-queue-copy-0.1.0-linux-x64             (~80 MB, marked executable)
+```
+
+Users just download and double-click (Windows) or `chmod +x && ./...`
+(Linux).
+
+### Version conventions
+
+- Tag format: `vMAJOR.MINOR.PATCH` (semver). Stripped to `MAJOR.MINOR.PATCH`
+  inside PyInstaller for the embedded version metadata.
+- Pre-releases: tag like `v0.1.0-rc1`. The workflow ships them as
+  regular releases (set `prerelease: true` in `release.yml` if you want
+  the "Pre-release" badge on GitHub).
+- The first release also needs to bump `version` in
+  [`pyproject.toml`](pyproject.toml) if you care about the Python package
+  metadata. The CI build derives its embedded version from the tag
+  regardless, so they can drift if you forget — but try not to.
+
+### Linux note
+
+The Linux binary is built on Ubuntu LTS runners. It links against
+`libgtk-3` and `libmpv` (1 or 2) — both are stock on every mainstream
+desktop distro. If a user reports "missing libmpv1", they can install
+it from their package manager.
+
+MTP support is **Windows-only**. On Linux the "Dispositivo MTP" button
+still appears but its picker returns an empty list (`comtypes` and WPD
+are Windows-only APIs). Local→local copies work fine.
 
 ## Quick reference (cheat sheet)
 

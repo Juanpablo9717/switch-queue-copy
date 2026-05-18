@@ -1,0 +1,114 @@
+name: Release
+
+# Fired when you push a tag starting with `v`, e.g. `v0.1.0`.
+# The job:
+#   1. Spins up one Windows and one Linux runner in parallel.
+#   2. Runs the full pytest suite as a gate.
+#   3. Bundles the app with `flet pack` (PyInstaller under the hood).
+#   4. Renames the output to a versioned, platform-tagged filename.
+#   5. Attaches it as an asset on a GitHub Release for that tag
+#      (creating the release if it doesn't exist), with auto-generated
+#      changelog from commit messages.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# We need write access to push the release + assets.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset_name_template: switch-queue-copy-{version}-windows-x64.exe
+            built_path: dist/Switch Queue Copy.exe
+          - os: ubuntu-latest
+            asset_name_template: switch-queue-copy-{version}-linux-x64
+            built_path: dist/Switch Queue Copy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # Flet's Linux runtime needs GTK + libmpv at *bundle* time so
+      # PyInstaller can resolve the shared libs to embed. We install
+      # best-effort — different Ubuntu LTSes name them differently and
+      # we don't want a missing package on the runner to fail the build
+      # before flet pack even runs.
+      - name: Install Linux system libs
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-0 \
+            libayatana-appindicator3-1 \
+            || true
+          sudo apt-get install -y libmpv2 || sudo apt-get install -y libmpv1 || true
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests (gate)
+        run: pytest -v
+
+      - name: Compute version
+        id: version
+        shell: bash
+        run: |
+          # github.ref_name is the tag (e.g. "v0.1.0"); strip the leading 'v'
+          # because PyInstaller's version strings don't like the prefix.
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version: $VERSION"
+
+      - name: Build with flet pack
+        shell: bash
+        run: |
+          flet pack switch_queue/__main__.py \
+            --name "Switch Queue Copy" \
+            --product-name "Switch Queue Copy" \
+            --product-version "${{ steps.version.outputs.version }}" \
+            --file-version "${{ steps.version.outputs.version }}" \
+            --yes
+
+      - name: Stage artifact under release name
+        id: stage
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          ASSET_NAME='${{ matrix.asset_name_template }}'
+          ASSET_NAME="${ASSET_NAME/\{version\}/${{ steps.version.outputs.version }}}"
+          cp "${{ matrix.built_path }}" "release-assets/$ASSET_NAME"
+          chmod +x "release-assets/$ASSET_NAME" 2>/dev/null || true
+          echo "name=$ASSET_NAME" >> "$GITHUB_OUTPUT"
+          echo "Staged:"
+          ls -lh release-assets/
+
+      - name: Create / update GitHub Release & upload asset
+        uses: softprops/action-gh-release@v2
+        with:
+          # Creates the release on first matrix-job, then later jobs
+          # just append their assets to the same release tag.
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release-assets/${{ steps.stage.outputs.name }}
+          draft: false
+          prerelease: false
