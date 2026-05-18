@@ -192,6 +192,31 @@ The repo ships two GitHub Actions workflows:
 > tag a release on every push — that produces version spam users
 > can't make sense of.
 
+#### Who pulls the trigger: human vs. AI agent
+
+| Action | Who does it |
+| --- | --- |
+| Push commit to `main` | Human **or** AI agent (after tests green) |
+| Add a one-liner to `CHANGELOG.md → ## [Unreleased]` | Whoever made the commit (humans should do this; an agent **must** do this for every user-visible change) |
+| **Suggest** a release ("you have N unreleased changes, including <highlights>; want me to cut v0.X.Y?") | AI agent, proactively |
+| **Decide** that this is a release-worthy moment | **Human only.** The agent waits for an explicit go-ahead. |
+| **Execute** the release (move CHANGELOG, tag, push) | AI agent, once told "dale, release vX.Y.Z" |
+
+Why the AI does not autonomously tag:
+
+- A release is a **public, permanent commitment**. Pushing `v0.2.0`
+  cannot be undone after downloaders have it; the only correction is
+  another release.
+- The MAJOR / MINOR / PATCH decision often hinges on **external context
+  the agent can't see** (an upcoming demo, a user request to delay,
+  a known-broken integration).
+- Linux/Windows build failures on the CI side should never end up on
+  the public `/releases` page. The human gate prevents "tag and pray".
+
+The agent's job is to **keep `[Unreleased]` accurate and propose the
+release on the maintainer's behalf**. The maintainer says "go" and the
+agent runs the steps below.
+
 Rule of thumb:
 
 - **Push to `main`** as soon as a change passes the test suite. Every
