@@ -185,17 +185,53 @@ The repo ships two GitHub Actions workflows:
   test suite, and uploads both to a new GitHub Release with
   auto-generated changelog.
 
+### When to cut a release (policy)
+
+> **Heads up to future maintainers and AI agents reading this**: pushing
+> to `main` and cutting a release are **separate decisions**. Do not
+> tag a release on every push — that produces version spam users
+> can't make sense of.
+
+Rule of thumb:
+
+- **Push to `main`** as soon as a change passes the test suite. Every
+  push gets a one-line entry under `## [Unreleased]` in
+  [`CHANGELOG.md`](CHANGELOG.md).
+- **Cut a release** when one of these is true:
+  - 🟢 A user-visible bug is fixed and users would benefit from the
+    update *now* → **PATCH** (`v0.1.0` → `v0.1.1`).
+  - 🟢 A new feature lands and is stable (added a backend, a language,
+    a setting…) → **MINOR** (`v0.1.0` → `v0.2.0`).
+  - 🟢 Behaviour changes in a way that breaks an existing user's
+    workflow (URI format change, removed setting, renamed CLI
+    flag…) → **MAJOR** (`v0.1.0` → `v1.0.0`).
+- **Do not cut a release for**:
+  - Internal refactors with no user-visible effect.
+  - Test-only changes.
+  - Doc-only changes (unless it's a major doc rewrite worth advertising).
+  - "I'm halfway through this feature" snapshots.
+
+Typical cadence for a solo project like this: **every 1–4 weeks**,
+batching multiple commits into one meaningful version bump.
+
 ### To cut a release
 
 ```bash
 # 1. Make sure tests pass locally first
 python -m pytest -v
 
-# 2. Tag the commit you want to ship
-git tag v0.1.0 -m "First public release"
+# 2. Move the [Unreleased] block in CHANGELOG.md to a new [vX.Y.Z]
+#    section, dated today; commit + push.
+#    (See CHANGELOG.md's header comment for the exact procedure.)
+git add CHANGELOG.md
+git commit -m "docs: changelog for v0.1.1"
+git push
 
-# 3. Push the tag (this triggers the workflow)
-git push origin v0.1.0
+# 3. Tag the commit you want to ship
+git tag v0.1.1 -m "v0.1.1 — describe the highlight"
+
+# 4. Push the tag (this triggers the workflow)
+git push origin v0.1.1
 ```
 
 Then watch the build at `https://github.com/Juanpablo9717/switch-queue-copy/actions`.
