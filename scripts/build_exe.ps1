@@ -38,8 +38,10 @@ try {
     }
 
     Write-Host "Running flet pack..." -ForegroundColor Cyan
+    # NOTE: we point flet pack at the top-level launcher (main.py), not
+    # the package's __main__.py. See main.py's docstring for the why.
     flet pack `
-        "switch_queue/__main__.py" `
+        "main.py" `
         --name "Switch Queue Copy" `
         --product-name "Switch Queue Copy" `
         --product-version "0.1.0" `

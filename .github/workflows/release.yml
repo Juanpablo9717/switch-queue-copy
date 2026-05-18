@@ -113,8 +113,12 @@ jobs:
 
       - name: Build with flet pack
         shell: bash
+        # We pass main.py (top-level launcher) rather than the package's
+        # __main__.py so that absolute imports work in the bundled
+        # context — PyInstaller doesn't preserve `python -m`-style
+        # __package__ semantics. See main.py docstring.
         run: |
-          flet pack switch_queue/__main__.py \
+          flet pack main.py \
             --name "Switch Queue Copy" \
             --product-name "Switch Queue Copy" \
             --product-version "${{ steps.version.outputs.version }}" \
