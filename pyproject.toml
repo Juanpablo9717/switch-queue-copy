@@ -37,6 +37,12 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
+    # PyInstaller is no longer a transitive dep of `flet` since 0.85 — it
+    # split into `flet-cli` + `flet-desktop` and the `pack` subcommand
+    # requires PyInstaller to be present in the same env. We add it here
+    # so CI's `pip install -e ".[dev]"` brings everything the release
+    # workflow needs.
+    "pyinstaller>=6",
 ]
 
 [project.gui-scripts]
