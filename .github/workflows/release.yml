@@ -77,24 +77,27 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      # Flet's Linux runtime needs GTK + libmpv at *bundle* time so
-      # PyInstaller can resolve the shared libs to embed. We install
-      # the full set we'll need for both flet pack AND for linuxdeploy
-      # to discover when building the AppImage.
+      # Flet on Linux uses `flet build linux` (which under the hood drives
+      # Flutter + serious_python) instead of `flet pack`. That toolchain
+      # needs the full GTK / GStreamer / libmpv stack at *build* time so
+      # the Flutter Linux runtime compiles, plus the AppImage tooling we
+      # use afterwards to wrap the result for cross-distro distribution.
+      #
+      # System libs derived from Flet's canonical all-builds workflow:
+      #   https://github.com/ndonkoHenri/flet-github-action-workflows
       - name: Install Linux system libs
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-3-0 \
-            libgtk-3-dev \
-            libayatana-appindicator3-1 \
-            libfuse2 \
-            desktop-file-utils \
-            patchelf \
-            wget
-          # libmpv name varies by Ubuntu release
-          sudo apt-get install -y libmpv2 || sudo apt-get install -y libmpv1 || true
+          sudo apt-get update --allow-releaseinfo-change
+          sudo apt-get install -y --no-install-recommends \
+            clang ninja-build cmake pkg-config \
+            libgtk-3-dev libayatana-appindicator3-1 \
+            libasound2-dev libmpv-dev mpv \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+            gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-gl gstreamer1.0-gtk3 \
+            gstreamer1.0-pulseaudio libsecret-1-0 libsecret-1-dev \
+            libfuse2 desktop-file-utils patchelf wget
 
       - name: Install Python deps
         run: |
@@ -128,7 +131,13 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Building version: $VERSION (tag $TAG)"
 
-      - name: Build with flet pack
+      # ------------------------------------------------------------------
+      # Windows uses `flet pack` (PyInstaller). It's working today and the
+      # Pango/fontconfig ABI mismatch that motivated this whole refactor
+      # only affects Linux, so we leave the Windows path alone.
+      # ------------------------------------------------------------------
+      - name: Build with flet pack (Windows)
+        if: runner.os == 'Windows'
         shell: bash
         # We pass main.py (top-level launcher) rather than the package's
         # __main__.py so that absolute imports work in the bundled
@@ -142,12 +151,46 @@ jobs:
             --file-version "${{ steps.version.outputs.version }}" \
             --yes
 
+      # ------------------------------------------------------------------
+      # Linux uses `flet build linux` (Flutter + serious_python). Unlike
+      # `flet pack`, this produces a fully self-contained Linux bundle —
+      # the Flutter desktop client (`flet_view`) is built in, so users
+      # don't get a runtime download attempt with an SSL error on launch.
+      #
+      # Auto-downloads the Flutter SDK on first run (cached in $HOME/flutter/).
+      # ------------------------------------------------------------------
+      - name: Build with flet build linux (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          flet build linux \
+            --module-name main \
+            --project switch_queue_copy \
+            --product "Switch Queue Copy" \
+            --artifact switch_queue_copy \
+            --build-version "${{ steps.version.outputs.version }}" \
+            --no-android-splash --no-ios-splash --no-web-splash \
+            --yes --no-rich-output
+          echo "=== Inspecting flet build linux output ==="
+          find build/linux -maxdepth 4 -type d
+          echo "---"
+          find build/linux -maxdepth 4 -type f -executable -not -name '*.so*' | head -20
+
       # =====================================================================
-      # Linux-only: wrap the PyInstaller bundle in an AppImage so libpango,
-      # libfontconfig, libgtk, libmpv, etc. travel WITH the binary instead
-      # of being inherited from the user's distro. Tools:
-      #   - linuxdeploy: walks the binary's needed libs and copies them in
+      # Linux-only: wrap the Flutter bundle produced by `flet build linux`
+      # in an AppImage so system libs (libgtk-3, libmpv, libpango, ...) that
+      # vary across distros travel WITH the artifact instead of being
+      # inherited from the user's system at runtime.
+      #
+      # Tools:
+      #   - linuxdeploy: walks the binary's ELF deps and copies system libs
       #   - appimagetool: produces the final single-file .AppImage
+      #
+      # Bundle layout from `flet build linux` (Flutter convention):
+      #   build/linux/x64/release/bundle/
+      #     <executable>              ← main binary
+      #     lib/                      ← Flutter runtime + app .so files
+      #     data/flutter_assets/      ← Flutter assets and Dart AOT snapshot
       # =====================================================================
       - name: Build AppImage (Linux only)
         if: runner.os == 'Linux'
@@ -158,16 +201,48 @@ jobs:
           APPDIR=Switch-Queue-Copy.AppDir
           BINARY_NAME='switch-queue-copy'
 
-          # 1) AppDir skeleton --------------------------------------------------
-          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+          # 1) Locate the Flutter bundle output --------------------------------
+          BUNDLE_DIR=$(find build/linux -type d -name bundle | head -1)
+          if [ -z "$BUNDLE_DIR" ]; then
+            echo "::error::Could not locate Flutter bundle dir under build/linux/"
+            find build/linux -maxdepth 5 -type d
+            exit 1
+          fi
+          echo "Bundle dir: $BUNDLE_DIR"
+          ls -la "$BUNDLE_DIR"
 
-          # 2) Copy the PyInstaller-bundled binary into AppDir ----------------
-          # flet pack outputs to "dist/Switch Queue Copy" — rename to a
-          # POSIX-friendly executable name with no spaces inside the AppImage.
-          cp "dist/Switch Queue Copy" "$APPDIR/usr/bin/$BINARY_NAME"
+          # Auto-detect the actual executable name (whatever --artifact resolved to).
+          BUNDLE_BIN=$(find "$BUNDLE_DIR" -maxdepth 1 -type f -executable -not -name '*.so*' | head -1)
+          if [ -z "$BUNDLE_BIN" ]; then
+            echo "::error::No executable found at top level of $BUNDLE_DIR"
+            exit 1
+          fi
+          BUNDLE_BIN_NAME=$(basename "$BUNDLE_BIN")
+          echo "Bundle binary: $BUNDLE_BIN_NAME"
+
+          # 2) AppDir skeleton --------------------------------------------------
+          mkdir -p "$APPDIR/usr/bin" \
+                   "$APPDIR/usr/share/applications" \
+                   "$APPDIR/usr/share/icons/hicolor/256x256/apps" \
+                   "$APPDIR/usr/share/$BINARY_NAME"
+
+          # 3) Copy the entire Flutter bundle into usr/share/<app>/ -----------
+          # We keep the bundle intact so Flutter can find data/ and lib/ via
+          # relative paths from the binary's location. usr/share is the
+          # AppImage-spec-friendly home for app data; we'll launch via a
+          # wrapper in usr/bin that cd's here first.
+          cp -r "$BUNDLE_DIR"/. "$APPDIR/usr/share/$BINARY_NAME/"
+
+          # 4) Wrapper in usr/bin that cd's into the bundle and execs ---------
+          cat > "$APPDIR/usr/bin/$BINARY_NAME" <<EOF
+          #!/bin/bash
+          HERE="\$(dirname "\$(readlink -f "\${0}")")"
+          cd "\$HERE/../share/$BINARY_NAME"
+          exec "./$BUNDLE_BIN_NAME" "\$@"
+          EOF
           chmod +x "$APPDIR/usr/bin/$BINARY_NAME"
 
-          # 3) .desktop file (required by AppImage spec) ----------------------
+          # 5) .desktop file ----------------------------------------------------
           cat > "$APPDIR/$BINARY_NAME.desktop" <<EOF
           [Desktop Entry]
           Type=Application
@@ -178,16 +253,9 @@ jobs:
           Categories=Utility;FileTransfer;
           Terminal=false
           EOF
-          # Also place it in the spec-compliant path
           cp "$APPDIR/$BINARY_NAME.desktop" "$APPDIR/usr/share/applications/$BINARY_NAME.desktop"
 
-          # 4) Icon — generate a placeholder if the repo doesn't ship one -----
-          # AppImage tools refuse to build without an icon. If you add a real
-          # icon at assets/icon.png in the future, the cp will pick it up.
-          # We use ImageMagick (preinstalled on ubuntu-22.04 runners) for the
-          # placeholder because it guarantees a valid PNG — earlier attempts
-          # with Pillow / raw printf bytes produced corrupt files that broke
-          # linuxdeploy's CImg-based icon validator.
+          # 6) Icon — placeholder via ImageMagick if no real icon shipped -----
           if [ -f assets/icon.png ]; then
             cp assets/icon.png "$APPDIR/$BINARY_NAME.png"
           else
@@ -195,37 +263,37 @@ jobs:
           fi
           cp "$APPDIR/$BINARY_NAME.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/$BINARY_NAME.png"
 
-          # 5) AppRun: entrypoint that sets up env and launches the binary ----
-          # We export PATH and LD_LIBRARY_PATH so bundled libs are preferred
-          # over the host's, fixing the Pango/fontconfig mismatch.
+          # 7) AppRun: minimal — just call the wrapper -------------------------
           cat > "$APPDIR/AppRun" <<'EOF'
           #!/bin/bash
           HERE="$(dirname "$(readlink -f "${0}")")"
-          export PATH="$HERE/usr/bin:${PATH}"
-          export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
+          export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
           export XDG_DATA_DIRS="$HERE/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
           exec "$HERE/usr/bin/switch-queue-copy" "$@"
           EOF
           chmod +x "$APPDIR/AppRun"
 
-          # 6) linuxdeploy: walk binary deps and bundle libs into AppDir ------
+          # 8) linuxdeploy: walk deps of the *real* bundle binary, bundle libs --
           wget -nv -O linuxdeploy.AppImage \
             "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
           chmod +x linuxdeploy.AppImage
-          # --appdir + --executable triggers dependency walking
-          ./linuxdeploy.AppImage \
+          # Point --executable at the actual ELF inside the bundle (not the wrapper
+          # script), so linuxdeploy's dependency walker has something to chew on.
+          # We pass the wrapper-script path as well via NO_STRIP=1 so linuxdeploy
+          # doesn't try to strip our shell scripts.
+          NO_STRIP=1 ./linuxdeploy.AppImage \
             --appdir "$APPDIR" \
-            --executable "$APPDIR/usr/bin/$BINARY_NAME" \
+            --executable "$APPDIR/usr/share/$BINARY_NAME/$BUNDLE_BIN_NAME" \
             --desktop-file "$APPDIR/$BINARY_NAME.desktop" \
             --icon-file "$APPDIR/$BINARY_NAME.png"
 
-          # 7) Final .AppImage -------------------------------------------------
+          # 9) Final .AppImage -------------------------------------------------
           wget -nv -O appimagetool.AppImage \
             "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x appimagetool.AppImage
+          mkdir -p dist
           ./appimagetool.AppImage "$APPDIR" "dist/Switch-Queue-Copy-x86_64.AppImage"
 
-          # Sanity: verify it's executable and prints something with --help / --version
           ls -lh dist/Switch-Queue-Copy-x86_64.AppImage
           file dist/Switch-Queue-Copy-x86_64.AppImage
 
