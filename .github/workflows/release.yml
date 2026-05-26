@@ -89,8 +89,11 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update --allow-releaseinfo-change
+          # libunwind-dev is explicitly listed because it's "held" on the
+          # ubuntu-22.04 runner image — without it, libgstreamer1.0-dev fails
+          # to install with "you have held broken packages."
           sudo apt-get install -y --no-install-recommends \
-            clang ninja-build cmake pkg-config \
+            clang ninja-build cmake pkg-config libunwind-dev \
             libgtk-3-dev libayatana-appindicator3-1 \
             libasound2-dev libmpv-dev mpv \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
