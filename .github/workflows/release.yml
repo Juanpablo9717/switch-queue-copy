@@ -10,14 +10,22 @@ name: Release
 #      the version (e.g. `0.1.0`). Useful when you're on a machine
 #      without git, or when you'd rather do it from the browser.
 #
-# Either way, the job:
-#   1. Spins up one Windows and one Linux runner in parallel.
-#   2. Runs the full pytest suite as a gate.
-#   3. Bundles the app with `flet pack` (PyInstaller under the hood).
-#   4. Renames the output to a versioned, platform-tagged filename.
-#   5. Attaches it as an asset on a GitHub Release for that tag
-#      (creating the release + tag if they don't exist), with
-#      auto-generated changelog from commit messages.
+# What this builds per platform:
+#
+#   - Windows: `flet pack` produces a single `.exe` with PyInstaller.
+#       Distributed as-is. Runs on Win10/11 x64.
+#
+#   - Linux: `flet pack` produces a PyInstaller bundle. We then wrap
+#       it in an AppImage so dependencies that vary across distros
+#       (libpango, libfontconfig, libgtk, libmpv, ...) are shipped
+#       inside the AppImage instead of inherited from the user's
+#       system. This avoids the "undefined symbol" class of bugs that
+#       hits modern rolling-release distros (Arch, CachyOS, Fedora 41+)
+#       where Pango is newer than the runner's bundled fontconfig.
+#       The AppImage works on any glibc >= 2.31 with FUSE 2 installed.
+#
+# Both flows run pytest first as a gate, then upload the platform
+# asset to the same GitHub Release tag (auto-created from the version).
 
 on:
   push:
@@ -50,9 +58,14 @@ jobs:
           - os: windows-latest
             asset_name_template: switch-queue-copy-{version}-windows-x64.exe
             built_path: dist/Switch Queue Copy.exe
-          - os: ubuntu-latest
-            asset_name_template: switch-queue-copy-{version}-linux-x64
-            built_path: dist/Switch Queue Copy
+          # We pin ubuntu-22.04 (not ubuntu-latest) because linuxdeploy
+          # and AppImage tooling are most stable there, and binaries
+          # built against the older glibc/Pango run on newer distros
+          # without ABI breaks. Bumping past 22.04 historically broke
+          # AppImage compatibility on older user systems.
+          - os: ubuntu-22.04
+            asset_name_template: switch-queue-copy-{version}-linux-x86_64.AppImage
+            built_path: dist/Switch-Queue-Copy-x86_64.AppImage
 
     steps:
       - name: Checkout
@@ -66,17 +79,21 @@ jobs:
 
       # Flet's Linux runtime needs GTK + libmpv at *bundle* time so
       # PyInstaller can resolve the shared libs to embed. We install
-      # best-effort — different Ubuntu LTSes name them differently and
-      # we don't want a missing package on the runner to fail the build
-      # before flet pack even runs.
+      # the full set we'll need for both flet pack AND for linuxdeploy
+      # to discover when building the AppImage.
       - name: Install Linux system libs
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             libgtk-3-0 \
+            libgtk-3-dev \
             libayatana-appindicator3-1 \
-            || true
+            libfuse2 \
+            desktop-file-utils \
+            patchelf \
+            wget
+          # libmpv name varies by Ubuntu release
           sudo apt-get install -y libmpv2 || sudo apt-get install -y libmpv1 || true
 
       - name: Install Python deps
@@ -124,6 +141,98 @@ jobs:
             --product-version "${{ steps.version.outputs.version }}" \
             --file-version "${{ steps.version.outputs.version }}" \
             --yes
+
+      # =====================================================================
+      # Linux-only: wrap the PyInstaller bundle in an AppImage so libpango,
+      # libfontconfig, libgtk, libmpv, etc. travel WITH the binary instead
+      # of being inherited from the user's distro. Tools:
+      #   - linuxdeploy: walks the binary's needed libs and copies them in
+      #   - appimagetool: produces the final single-file .AppImage
+      # =====================================================================
+      - name: Build AppImage (Linux only)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          VERSION='${{ steps.version.outputs.version }}'
+          APPDIR=Switch-Queue-Copy.AppDir
+          BINARY_NAME='switch-queue-copy'
+
+          # 1) AppDir skeleton --------------------------------------------------
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+
+          # 2) Copy the PyInstaller-bundled binary into AppDir ----------------
+          # flet pack outputs to "dist/Switch Queue Copy" — rename to a
+          # POSIX-friendly executable name with no spaces inside the AppImage.
+          cp "dist/Switch Queue Copy" "$APPDIR/usr/bin/$BINARY_NAME"
+          chmod +x "$APPDIR/usr/bin/$BINARY_NAME"
+
+          # 3) .desktop file (required by AppImage spec) ----------------------
+          cat > "$APPDIR/$BINARY_NAME.desktop" <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=Switch Queue Copy
+          Comment=Serial file-copy tool for Nintendo Switch libraries with auto-classification
+          Exec=$BINARY_NAME
+          Icon=$BINARY_NAME
+          Categories=Utility;FileTransfer;
+          Terminal=false
+          EOF
+          # Also place it in the spec-compliant path
+          cp "$APPDIR/$BINARY_NAME.desktop" "$APPDIR/usr/share/applications/$BINARY_NAME.desktop"
+
+          # 4) Icon — generate a placeholder if the repo doesn't ship one -----
+          # AppImage tools refuse to build without an icon. If you add a real
+          # icon at assets/icon.png in the future, the cp will pick it up.
+          if [ -f assets/icon.png ]; then
+            cp assets/icon.png "$APPDIR/$BINARY_NAME.png"
+          else
+            # 256x256 solid-color PNG placeholder so appimagetool doesn't fail.
+            # Replace this with a real icon when you have one (assets/icon.png).
+            python -c "
+          from PIL import Image
+          img = Image.new('RGBA', (256, 256), (30, 30, 60, 255))
+          img.save('$APPDIR/$BINARY_NAME.png')
+          " 2>/dev/null || {
+              # Fallback if Pillow isn't installed: 1x1 transparent PNG
+              printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x03\x00\x05\xfe\x02\xfeA\x96\xb0\xdb\x00\x00\x00\x00IEND\xaeB`\x82' > "$APPDIR/$BINARY_NAME.png"
+            }
+          fi
+          cp "$APPDIR/$BINARY_NAME.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/$BINARY_NAME.png" || true
+
+          # 5) AppRun: entrypoint that sets up env and launches the binary ----
+          # We export PATH and LD_LIBRARY_PATH so bundled libs are preferred
+          # over the host's, fixing the Pango/fontconfig mismatch.
+          cat > "$APPDIR/AppRun" <<'EOF'
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          export PATH="$HERE/usr/bin:${PATH}"
+          export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
+          export XDG_DATA_DIRS="$HERE/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+          exec "$HERE/usr/bin/switch-queue-copy" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+
+          # 6) linuxdeploy: walk binary deps and bundle libs into AppDir ------
+          wget -nv -O linuxdeploy.AppImage \
+            "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          chmod +x linuxdeploy.AppImage
+          # --appdir + --executable triggers dependency walking
+          ./linuxdeploy.AppImage \
+            --appdir "$APPDIR" \
+            --executable "$APPDIR/usr/bin/$BINARY_NAME" \
+            --desktop-file "$APPDIR/$BINARY_NAME.desktop" \
+            --icon-file "$APPDIR/$BINARY_NAME.png"
+
+          # 7) Final .AppImage -------------------------------------------------
+          wget -nv -O appimagetool.AppImage \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x appimagetool.AppImage
+          ./appimagetool.AppImage "$APPDIR" "dist/Switch-Queue-Copy-x86_64.AppImage"
+
+          # Sanity: verify it's executable and prints something with --help / --version
+          ls -lh dist/Switch-Queue-Copy-x86_64.AppImage
+          file dist/Switch-Queue-Copy-x86_64.AppImage
 
       - name: Stage artifact under release name
         id: stage
