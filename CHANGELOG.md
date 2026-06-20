@@ -23,6 +23,22 @@ and the project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v
 ## [Unreleased]
 
 ### Added
+- _(nothing yet)_
+
+### Changed
+- _(nothing yet)_
+
+### Fixed
+- _(nothing yet)_
+
+### Removed
+- _(nothing yet)_
+
+---
+
+## [0.2.0] – 2026-06-20
+
+### Added
 - **MTP destinations on Linux** via the desktop's gvfs layer (`gio`).
   New `LinuxMtpBackend` copies with `gio copy` — which sends each file
   with its size up front (like Windows WPD), so **DBI install over MTP
@@ -43,12 +59,6 @@ and the project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v
   the WPD/COM backend unchanged; Linux uses the new gvfs path. On
   Windows the chosen destination stays an `mtp://` URI; on Linux it's an
   `mtp://<gvfs-host>/…` URI routed to `LinuxMtpBackend`.
-
-### Fixed
-- _(nothing yet)_
-
-### Removed
-- _(nothing yet)_
 
 ---
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "switch-queue-copy"
-version = "0.1.0"
+version = "0.2.0"
 description = "Queued file-copy tool with auto-classification (BASE / UPDATE / DLC) for Nintendo Switch libraries (NSP/NSZ/XCI)."
 readme = "README.md"
 license = { text = "MIT" }
