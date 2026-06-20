@@ -19,13 +19,13 @@ from .backends import (
     COPY_BUF,
     DestinationBackend,
     LocalBackend,
-    MtpBackend,
     RESULT_CANCEL,
     RESULT_ERROR,
     RESULT_OK,
     RESULT_SKIP,
     is_mtp_uri,
 )
+from .backends.mtp_provider import make_mtp_backend
 from .models import CopyEvent, CopyState, Game, GameFile
 
 # Moving-average window for speed/ETA in seconds.
@@ -50,12 +50,13 @@ CopyCallback = Callable[[CopyEvent], None]
 def make_backend(destination: str | Path) -> DestinationBackend:
     """Pick a backend based on the destination string/path.
 
-    A ``mtp://...`` URI gives an :class:`MtpBackend`; anything else is
-    treated as a local filesystem path.
+    A ``mtp://...`` URI gives the platform's MTP backend (WPD on Windows,
+    ``gio copy`` on Linux); anything else is treated as a local filesystem
+    path.
     """
     s = str(destination)
     if is_mtp_uri(s):
-        return MtpBackend(s)
+        return make_mtp_backend(s)
     return LocalBackend(Path(s))
 
 

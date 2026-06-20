@@ -23,10 +23,26 @@ and the project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v
 ## [Unreleased]
 
 ### Added
-- _(nothing yet)_
+- **MTP destinations on Linux** via the desktop's gvfs layer (`gio`).
+  New `LinuxMtpBackend` copies with `gio copy` — which sends each file
+  with its size up front (like Windows WPD), so **DBI install over MTP
+  works on Linux**, verified on a real Switch. Picker enumerates and
+  browses gvfs-mounted devices; install storages receive files flat,
+  ordinary storages keep the source folder structure. Pause maps to
+  `SIGSTOP`/`SIGCONT`, cancel/skip to process termination, progress to
+  parsing `gio copy -p`. No new Python dependency (shells out to `gio`).
+  Requires `gvfs-mtp` (Arch/Fedora) / `gvfs-backends` (Debian/Ubuntu);
+  the picker shows an install hint when absent.
+- `docs/linux-mtp.md` documenting the Linux MTP design, the KDE
+  device-contention caveat, and troubleshooting.
+- `tests/test_mtp_linux.py` — pure unit tests for the gvfs provider
+  (mock `gio`, no device needed).
 
 ### Changed
-- _(nothing yet)_
+- MTP picker is now platform-dispatched (`mtp_provider`): Windows keeps
+  the WPD/COM backend unchanged; Linux uses the new gvfs path. On
+  Windows the chosen destination stays an `mtp://` URI; on Linux it's an
+  `mtp://<gvfs-host>/…` URI routed to `LinuxMtpBackend`.
 
 ### Fixed
 - _(nothing yet)_

@@ -62,6 +62,7 @@ TRANSLATIONS = {
     "picker.mtp_breadcrumb_root": "Dispositivos conectados",
     "picker.mtp_no_devices": "No se detectaron dispositivos MTP. Conecta el dispositivo y actualiza.",
     "picker.mtp_enum_error": "Error al enumerar dispositivos: {error}",
+    "picker.mtp_install_hint": "MTP no disponible: instala el backend GVFS-MTP (gvfs-mtp en Arch/Fedora, gvfs-backends en Debian/Ubuntu) y reconecta el dispositivo.",
     "picker.mtp_empty_folder": "(carpeta vacía)",
     "picker.mtp_go_up": "Subir un nivel",
 

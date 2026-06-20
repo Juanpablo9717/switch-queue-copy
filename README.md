@@ -67,7 +67,8 @@ order *you* want, with proper progress, pause, skip, cancel.
   proves no two files are ever in flight at the same time.
 - **Dark / Light theme** (dark default), **i18n** (Spanish / English),
   **in-app log drawer** (VS Code-style terminal panel with copy-to-clipboard
-  via Win32 SetClipboardData), **MTP destinations** (Windows only),
+  via Win32 SetClipboardData), **MTP destinations** (Windows via WPD,
+  Linux via gvfs/`gio` — see [`docs/linux-mtp.md`](docs/linux-mtp.md)),
   **desktop notification + optional shutdown** when the queue finishes
   (with a 30 s in-app countdown to abort).
 
@@ -78,8 +79,11 @@ order *you* want, with proper progress, pause, skip, cancel.
 - **Python ≥ 3.10** ([download](https://www.python.org/downloads/)). Make
   sure `python` is on your PATH (the installer asks; tick it).
 - **git** ([download](https://git-scm.com/download/win)) — to clone the repo.
-- **Windows 10/11** if you want MTP destinations (Switch via DBI/Tinfoil,
-  Android phones, etc.). The rest works on Linux/macOS too.
+- **MTP destinations** (Switch via DBI/Tinfoil, Android phones, etc.)
+  work on **Windows 10/11** out of the box, and on **Linux** with the
+  gvfs MTP backend installed (`gvfs-mtp` on Arch/Fedora, `gvfs-backends`
+  on Debian/Ubuntu — see [`docs/linux-mtp.md`](docs/linux-mtp.md)). The
+  rest works on Linux/macOS too.
 - *(optional)* a virtual environment tool like `venv` (ships with Python).
 
 Disk: ~150 MB during install (Flet runtime cache ~50 MB on first run,
@@ -309,9 +313,19 @@ The Linux binary is built on Ubuntu LTS runners. It links against
 desktop distro. If a user reports "missing libmpv1", they can install
 it from their package manager.
 
-MTP support is **Windows-only**. On Linux the "Dispositivo MTP" button
-still appears but its picker returns an empty list (`comtypes` and WPD
-are Windows-only APIs). Local→local copies work fine.
+MTP works on **both Windows and Linux** — via different stacks:
+
+- **Windows:** WPD/COM (`comtypes`), no extra install.
+- **Linux:** the desktop's **gvfs** layer, driven by the `gio` CLI. The
+  user installs the gvfs MTP backend once — **`gvfs-mtp`** (Arch/Fedora)
+  or **`gvfs-backends`** (Debian/Ubuntu). It's *not* bundled in the
+  AppImage because it's a system service that claims the USB device. If
+  it's absent, the picker shows an install hint instead of failing.
+
+DBI install over MTP works on Linux too (tested on a real Switch). See
+[`docs/linux-mtp.md`](docs/linux-mtp.md) for how it works, the **KDE
+caveat** (KIO grabs the device — disable MTP automount or reconnect), and
+troubleshooting. Local→local copies work everywhere.
 
 ## Quick reference (cheat sheet)
 
@@ -340,7 +354,9 @@ switch_queue/
 │   └── backends/
 │       ├── base.py          ← DestinationBackend protocol
 │       ├── local.py         ← LocalBackend (open + shutil + 4 MB buffer)
-│       └── mtp.py           ← MtpBackend (Heribert17/mtp + progress wrapper)
+│       ├── mtp.py           ← MtpBackend, Windows WPD (Heribert17/mtp + progress wrapper)
+│       ├── mtp_linux.py     ← LinuxMtpBackend, gvfs/`gio copy` (see docs/linux-mtp.md)
+│       └── mtp_provider.py  ← platform dispatch: WPD (Win) vs gvfs (Linux)
 │
 ├── ui/                      ← Flet view layer
 │   ├── theme.py             ← Light/Dark Theme dataclasses + globals
@@ -374,6 +390,7 @@ tests/
 ├── test_classifier.py       ← every regex rule, 7 real-world filenames
 ├── test_scanner.py          ← single game / library / collection / bundle / mod
 ├── test_copier.py           ← serial invariant + pause/skip/cancel
+├── test_mtp_linux.py        ← Linux gvfs provider (pure, mocks gio)
 ├── test_skip_existing.py    ← resumable semantics
 ├── test_clipboard.py        ← Win32 clipboard round-trip
 └── test_mtp_path_safety.py  ← regression for the os.path.join landmine
@@ -527,6 +544,22 @@ library then refuses. DBI numbers all its install storages `"1:"`, `"2:"`,
 Our `MtpBackend._walk_to(parts: list[str])` never builds a string path —
 it walks `get_child` / `create_content` step by step. Regression test in
 [`tests/test_mtp_path_safety.py`](tests/test_mtp_path_safety.py).
+
+### Why Linux MTP uses `gio copy` instead of writing to the gvfs mount
+
+A gvfs-mounted MTP device looks like a folder
+(`/run/user/<uid>/gvfs/mtp:host=…`), so it's tempting to just reuse
+`LocalBackend`. That works for ordinary storages but **fails on DBI's
+install drop-zones** (`5: SD Card install`): gvfs creates a zero-byte
+object then streams into it, and DBI rejects that with `Errno 5` — the
+object can't even be created. `gio copy` sends the file **with its size
+up front** (`LIBMTP_Send_File_From_File`), which is what DBI expects and
+what Windows WPD already does — so it installs correctly *and* copies to
+ordinary storages. `LinuxMtpBackend` therefore drives `gio copy` and maps
+pause→`SIGSTOP`, cancel/skip→terminate, progress→parsing `gio copy -p`.
+Full write-up and the **KDE device-contention caveat** live in
+[`docs/linux-mtp.md`](docs/linux-mtp.md). Windows' `MtpBackend` is
+untouched.
 
 ### Why per-game expansion state is kept in a dict keyed by `id(game)`
 

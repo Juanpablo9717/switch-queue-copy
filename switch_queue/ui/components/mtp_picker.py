@@ -17,8 +17,12 @@ from typing import Callable
 
 import flet as ft
 
-from ...core.backends import build_uri
-from ...core.backends.mtp import list_devices, list_device_folders
+from ...core.backends.mtp_provider import (
+    MtpUnavailable,
+    build_destination,
+    list_device_folders,
+    list_devices,
+)
 from ...i18n import t
 from .. import theme
 
@@ -125,6 +129,10 @@ class MtpPicker:
 
         try:
             devices = list_devices()
+        except MtpUnavailable:
+            self._error_text.value = t("picker.mtp_install_hint")
+            self.page.update()
+            return
         except Exception as exc:
             self._error_text.value = t("picker.mtp_enum_error", error=str(exc))
             self.page.update()
@@ -224,10 +232,10 @@ class MtpPicker:
     def _on_confirm(self, e: ft.ControlEvent) -> None:
         if self._device is None or not self._path:
             return
-        device_name = self._device.name or self._device.devicename
-        uri = build_uri(device_name, *self._path)
+        # Windows -> mtp:// URI (MtpBackend); Linux -> gvfs path (LocalBackend).
+        dest = build_destination(self._device, self._path)
         self.page.pop_dialog()
-        self.on_select(uri)
+        self.on_select(dest)
 
     def _on_cancel(self, e: ft.ControlEvent) -> None:
         self.page.pop_dialog()
