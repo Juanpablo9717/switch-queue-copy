@@ -195,6 +195,10 @@ jobs:
       #     lib/                      ← Flutter runtime + app .so files
       #     data/flutter_assets/      ← Flutter assets and Dart AOT snapshot
       # =====================================================================
+      # KNOWN ISSUE: this step currently fails — `flet build linux` above
+      # is not emitting the Flutter bundle, so there's no `bundle/` to wrap
+      # and releases ship Windows-only. Diagnosis + fix options:
+      #   docs/linux-release-build.md
       - name: Build AppImage (Linux only)
         if: runner.os == 'Linux'
         shell: bash
